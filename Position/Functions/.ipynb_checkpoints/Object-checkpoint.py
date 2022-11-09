@@ -27,7 +27,7 @@ class Position_graph:
     def __init__(self, dataset, sorting_columns = ['Timestamp','device_mac','ap_mac']):
         self.dataset = dataset.sort_values(sorting_columns).reset_index(drop=True)
         print(f"Length of dataset: {dataset.shape[0]}")
-        self.walking_param = 1.42
+        self.walking_param = 0.85
         self.distance_formula = distance_function
         self.channel_table = pd.read_csv(f'channel.csv')
         #Initiating complex structures
@@ -39,28 +39,37 @@ class Position_graph:
         
         self.distances = ''
         self.active_distance_slice = ''
+        self.window_index = ''
+        self.graph_dict = {}
         self.graph = 'Please initiate the graph using the function generate_graph_structure()'
         self.subgraph = 'Please initiate the graph using the function generate_subgraphs()'
         self.topological_order = 'Please initiate the graph using the function generate_topological_order()'
         
         
-    def compute_window(self, **kwargs):
-        self.window_index = Window.generate_window_dict(self.dataset, 'Timestamp', window_size=1800, window_frequency=900, **kwargs)
+    def compute_window(self, window_size=1800, window_frequency=900):
+        '''
+        Calling the window function passing the kwargs from the object
+        '''
+        dummydataset = pd.DataFrame.copy(self.dataset, deep= True)
+        dummydataset['signal_strength'] = dummydataset[['ap_mac','signal_strength', 'channel']].values.tolist()
+        self.window_index = Window.generate_window_dict(dummydataset, 'Timestamp', window_size=1800, window_frequency=900, **self.window_kwargs)
+    
+    def compute_distance_in_windows(self, start_slice=0, stop_slice=100):
+        '''
+        From the window structure we compute a slice of distances (based on n windows) returns the active_distance_slice structure having the   
+        distances computed for each random observations
+        '''
+        dummydataset = pd.DataFrame.copy(self.dataset, deep= True)
+        dummydataset['signal_strength'] = dummydataset[['ap_mac','signal_strength', 'channel']].values.tolist()
         
-    def compute_distance_in_windows(self, slice_amount=100):
-        dummydataset = self.dataset
-        dummydataset['signal_strength'] = self.dataset[['ap_mac','signal_strength', 'channel']].values.tolist()
-
-        kwargs = {
-         'min_window_len':2,
-         'min_value_len':1   
-        }
-        window_index = Window.generate_window_dict(self.dataset, 'Timestamp', window_size=1800, window_frequency=900, **self.window_kwargs)
-        sub_window_index = dict(itertools.islice(window_index.items(), slice_amount))
+        if self.window_index == '':
+            self.window_index = Window.generate_window_dict(dummydataset, 'Timestamp', window_size=1800, window_frequency=900, **self.window_kwargs)
+    
+        sub_window_index = dict(itertools.islice(self.window_index.items(), start_slice, stop_slice))
         df_list = {}
 
         for key, value in sub_window_index.items():
-            df_list[key] = self.dataset[value[0]:value[1]].groupby(['device_mac'])['signal_strength'].apply(lambda x: list(np.unique(x))).apply(list).reset_index()
+            df_list[key] = dummydataset[value[0]:value[1]].groupby(['device_mac'])['signal_strength'].apply(lambda x: list(np.unique(x))).apply(list).reset_index()
         
         #computing the distance by observation and by ap
         final_dict = dict((k, Distance.transform_dict_entry(v, 'signal_strength', 'distance_by_ap', Distance.cycle_and_apply)) for k,v in df_list.items())  
@@ -71,24 +80,38 @@ class Position_graph:
         #replacing the device_mac by a true random uuid in order to avoid breaking the next algorithms
         final_dict = dict((k, Distance.transform_dict_entry(v, 'device_mac', 'device_mac', Distance.generate_uuid)) for k,v in final_dict.items()) 
         self.active_distance_slice = final_dict
-        print(f'Slice of {slice_amount} computed for distance stored under the active_distance_slice attribute')
+        print(f'Slice from {start_slice} to {stop_slice} computed for distance stored under the active_distance_slice attribute')
     
-    def compute_distance_1_to_n(self, n_window=5, n_starting_index = 0):
+    def compute_distance_1_to_n(self, n_window=5, n_starting_index = 0, starting_slice = 0):
+        '''
+        By index, in a starting slice connect to the next n windows and return the dictionnaries of tuple of source to destination and edge values
+        '''
         if self.active_distance_slice == '':
             raise Exception('Please compute compute_distance_in_windows before this function!')
         #storing the keys only
         dict_keys = list(self.active_distance_slice.keys())
-        first_item = Distance.fetch_one_item(self.active_distance_slice, dict_keys[0], n_starting_index)
+        first_item = Distance.fetch_one_item(self.active_distance_slice, dict_keys[starting_slice], n_starting_index)
         kwargs = {
             'discriminant_walking' : self.walking_param,
             'time_window_length' : dict_keys[0][1]-dict_keys[0][0],
             'master_dict' : self.active_distance_slice,
             'item' : first_item
         }
-        dicts =  Distance.compute_n_windows(dict_keys[1:n_window], **kwargs)
-        tuple_dataframe = pd.DataFrame.from_dict(list(chain.from_iterable(dicts)))
-        tuple_dataframe
-        return tuple_dataframe
+        dicts =  Distance.compute_n_windows(dict_keys[starting_slice+1:starting_slice+1+n_window], **kwargs)
+        return dicts
+    
+    def compute_full_window_distance(self, n_window = 5, starting_slice = 0):
+        '''
+        Compute the a complete slice and return the dictionnaries of tuples
+        '''
+        dict_list_graph_node = {}
+        dict_keys = list(self.active_distance_slice.keys())
+        number_of_nodes = len(self.active_distance_slice[dict_keys[starting_slice]])
+        for i in range(0,number_of_nodes):
+            obs_graph_struct = self.compute_distance_1_to_n(n_starting_index = i, n_window = n_window, starting_slice = starting_slice)
+            if len(obs_graph_struct)>0:
+                dict_list_graph_node[f'{dict_keys[starting_slice]}_{i}'] = obs_graph_struct
+        return dict_list_graph_node
     
     def generate_graph_structure(self):
         return None

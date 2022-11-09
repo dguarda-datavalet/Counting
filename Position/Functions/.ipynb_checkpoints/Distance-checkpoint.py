@@ -3,6 +3,7 @@ from itertools import chain
 import numpy as np
 import math
 import pandas as pd
+pd.options.mode.chained_assignment = None
 import copy
 import uuid
 from numpy import linalg as LA
@@ -57,20 +58,29 @@ def compute_distance_window(master_dict, item, key, discriminant_walking, time_w
     working_df['ap_name_bool'] = working_df['ap_name'].apply(lambda x: compare_set_column(x,item['ap_name']))
     working_df = working_df[working_df['ap_name_bool']]
     
-    boundary = discriminant_walking*time_window_length*2
-    
-    working_df['distance'] = working_df['distance'].apply(lambda x: subs_list(x,item['distance']))
-    working_df['distance_bool'] = working_df['distance'].apply(lambda x: compare_list_distance(x,boundary))
-    working_df = working_df[working_df['distance_bool']]
-    #adding the item name as a column
-    working_df['source_device_mac'] = item['device_mac']
-    return working_df[['source_device_mac','device_mac','distance','ap_name','number_ap']].to_dict('records')
+    boundary = discriminant_walking*time_window_length
+    if(len(working_df)>0):
+        working_df['distance'] = working_df['distance'].apply(lambda x: subs_list(x,item['distance']))
+        working_df['distance_bool'] = working_df['distance'].apply(lambda x: compare_list_distance(x,boundary))
+        working_df = working_df[working_df['distance_bool']]
+        #adding the item name as a column
+        working_df['source_device_mac'] = item['device_mac']
+    else:
+        return None
+    try:
+        return working_df[['source_device_mac','device_mac','distance','ap_name','number_ap']].to_dict('records')
+    except:
+        return None
 
 def compute_n_windows(keys, **kwargs):
-    list_of_dicts = []
+    starting_disc = kwargs['discriminant_walking']
+    item = kwargs['item']['device_mac']
+    dict_of_dicts = {}
     i = 1.0
     for key in keys:
-        kwargs['discriminant_walking'] = kwargs['discriminant_walking'] * i
-        list_of_dicts.append(compute_distance_window(key = key, **kwargs))
-        i = i*1.10
-    return list_of_dicts
+        kwargs['discriminant_walking'] = starting_disc * i
+        computed_distance = compute_distance_window(key = key, **kwargs)
+        if(computed_distance is not None):
+            dict_of_dicts[f'{key}_{item}'] = computed_distance
+            i = i+1
+    return dict_of_dicts
