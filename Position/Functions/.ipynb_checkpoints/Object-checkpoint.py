@@ -4,12 +4,14 @@ import pandas as pd
 import numpy as np
 import itertools
 from itertools import chain
+from tqdm import tqdm
 
 import sys  
 sys.path.insert(0, './Functions/')
 
 import Window
 import Distance
+import Graph
 
 def distance_function(fspl, frequency):
     '''
@@ -112,6 +114,29 @@ class Position_graph:
             if len(obs_graph_struct)>0:
                 dict_list_graph_node[f'{dict_keys[starting_slice]}_{i}'] = obs_graph_struct
         return dict_list_graph_node
+    
+    def compute_graph(self, seq_pourc = 0.1, n_windows = 4, window_index = 0):
+        '''
+        Computing a graph for a percentage of the data and sotres it in the object under the attribute obj.graph
+        '''
+        store_me = list(Graph.spew_tuples(self, seq_pourc=seq_pourc))
+        slices_list = Graph.correct_overlapping_index(store_me)
+        
+        self.compute_distance_in_windows(start_slice=slices_list[window_index][0], stop_slice=slices_list[window_index][1])
+
+        iter_list = range(slices_list[window_index][1]-slices_list[window_index][0])
+        graph_dicts = {}
+
+        for ind in tqdm(iter_list):
+            graph_dicts.update(self.compute_full_window_distance(n_window=n_windows,starting_slice=ind))
+
+        self.graph_dict = Graph.flatten_once(graph_dicts)
+        #removing the nesting left from putting dictionnaries in list    
+        unnested_dict = list(chain.from_iterable(Graph.put_in_list(self.graph_dict)))
+        directed_graph_df = pd.DataFrame.from_dict(unnested_dict)
+        directed_graph_df['distance'] = directed_graph_df['distance'].apply(lambda x: x[0])
+        #storing the result in the graph attribute
+        self.graph = nx.from_pandas_edgelist(directed_graph_df,'source_device_mac','device_mac', edge_attr='distance')
     
     def generate_graph_structure(self):
         return None
