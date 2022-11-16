@@ -12,6 +12,7 @@ sys.path.insert(0, './Functions/')
 import Window
 import Distance
 import Graph
+import Subgraph
 
 def distance_function(fspl, frequency):
     '''
@@ -136,8 +137,22 @@ class Position_graph:
         directed_graph_df = pd.DataFrame.from_dict(unnested_dict)
         directed_graph_df['distance'] = directed_graph_df['distance'].apply(lambda x: x[0])
         #storing the result in the graph attribute
-        self.graph = nx.from_pandas_edgelist(directed_graph_df,'source_device_mac','device_mac', edge_attr='distance')
-    
+        self.graph = nx.from_pandas_edgelist(directed_graph_df,'source_device_mac','device_mac', edge_attr='distance', create_using=nx.DiGraph())
+
+    def compute_subgraphs(self, remaining_nodes = 0.2, total_iterations = 10, pourcentage_complete_paths = 0.25):
+        starting_nodes = len(self.graph.nodes)
+        final_nodes = len(self.graph.nodes)*(1-remaining_nodes)
+
+        devices = []
+        i = 0
+        while(len(self.graph.nodes)>final_nodes and i<total_iterations):
+            i = i + 1
+            devices.append(Subgraph.remove_devices_from_graph(self.graph, pourc=pourcentage_complete_paths))
+
+        devices = list(chain.from_iterable(devices))
+        self.subgraph = devices
+        print(f'Added {len(devices)} devices subgraphs under the subgraph attribute')       
+        
     def generate_graph_structure(self):
         return None
     
